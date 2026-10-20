@@ -1,0 +1,1034 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Messier Jumper Sky Map Viewer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #000000;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+    }
+    #canvas-container {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      touch-action: none;
+      background-color: #000000;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background-color: #000000;
+    }
+    
+    /* Dark Theme Overlay UI */
+    .ui-panel {
+      position: absolute;
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 10px 14px;
+      z-index: 10;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+    }
+    #header-panel {
+      top: 14px; left: 14px;
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    }
+    h1 { font-size: 1rem; color: #38bdf8; font-weight: 700; margin-right: 6px; letter-spacing: 0.5px; }
+    
+    .btn {
+      background: #1e293b; color: #94a3b8; border: 1px solid #334155;
+      padding: 6px 10px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;
+      font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 4px;
+    }
+    .btn:hover { background: #334155; color: #f8fafc; border-color: #38bdf8; }
+    .btn.active { background: #0284c7; border-color: #38bdf8; color: #ffffff; }
+
+    #datetime-panel {
+      top: 14px; right: 14px; display: flex; flex-direction: column; gap: 8px; width: 280px;
+    }
+    .panel-title { font-size: 0.75rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.5px; }
+    .datetime-row { display: flex; gap: 6px; align-items: center; }
+    input[type="datetime-local"] {
+      background: #0f172a; border: 1px solid #334155; color: #f8fafc;
+      padding: 5px; border-radius: 4px; font-size: 0.75rem; font-family: monospace; width: 100%;
+    }
+    .btn-group { display: flex; gap: 4px; width: 100%; }
+    .btn-group .btn { flex: 1; justify-content: center; padding: 4px 0; }
+    
+    #controls-panel {
+      bottom: 14px; right: 14px; display: flex; flex-direction: column; gap: 8px; width: 250px;
+    }
+    label { font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; justify-content: space-between; }
+    input[type="range"] { accent-color: #38bdf8; cursor: pointer; width: 100px; }
+    
+    #inspector {
+      bottom: 14px; left: 14px; width: 290px; display: none;
+    }
+    #inspector h2 { font-size: 0.95rem; color: #f43f5e; margin-bottom: 6px; }
+    .info-row { display: flex; justify-content: space-between; font-size: 0.75rem; margin: 3px 0; color: #94a3b8; }
+    .info-val { color: #f1f5f9; font-weight: 600; font-family: monospace; }
+
+    .location-tag { font-size: 0.7rem; color: #64748b; text-align: right; }
+
+    /* Red Night Vision Mode */
+    body.night-mode { background-color: #000000; }
+    body.night-mode canvas { filter: sepia(100%) hue-rotate(310deg) saturate(900%) contrast(150%); }
+    body.night-mode .ui-panel { background: rgba(24, 0, 0, 0.92); border-color: #7f1d1d; }
+    body.night-mode h1, body.night-mode .panel-title, body.night-mode .info-val { color: #ef4444; }
+    body.night-mode .btn { background: #450a0a; border-color: #7f1d1d; color: #fca5a5; }
+    body.night-mode .btn.active { background: #991b1b; color: #fff; }
+    body.night-mode input { background: #1a0303; border-color: #7f1d1d; color: #fca5a5; }
+  </style>
+</head>
+<body>
+
+<div id="canvas-container">
+  <canvas id="skymap"></canvas>
+</div>
+
+<!-- Header Navigation Bar -->
+<div id="header-panel" class="ui-panel">
+  <h1>Messier Jumper Sky Map</h1>
+  <button class="btn active" id="toggle-constellations">IAU Constellations</button>
+  <button class="btn active" id="toggle-messier">Messier (M1-M110)</button>
+  <button class="btn active" id="toggle-planets">Planets/Moon</button>
+  <button class="btn active" id="toggle-ecliptic">Ecliptic</button>
+  <button class="btn" id="toggle-grid">Grid: Off</button>
+  <button class="btn" id="toggle-night">Night Mode (Red)</button>
+</div>
+
+<!-- Date & Time Control Panel -->
+<div id="datetime-panel" class="ui-panel">
+  <div class="panel-title">Observation Date & Time</div>
+  <div class="datetime-row">
+    <input type="datetime-local" id="datetime-input">
+  </div>
+  <div class="btn-group">
+    <button class="btn" id="btn-now">Now</button>
+    <button class="btn" id="btn-sub-hour">-1h</button>
+    <button class="btn" id="btn-add-hour">+1h</button>
+    <button class="btn" id="btn-sub-day">-1d</button>
+    <button class="btn" id="btn-add-day">+1d</button>
+  </div>
+  <div class="location-tag">Location: Orlando, FL (28.54°N, 81.38°W)</div>
+</div>
+
+<!-- Display Settings Panel -->
+<div id="controls-panel" class="ui-panel">
+  <label>Mag Limit: <span id="mag-val" style="color:#38bdf8; font-weight:bold;">5.0</span>
+    <input type="range" id="mag-limit" min="1.0" max="6.0" step="0.1" value="5.0">
+  </label>
+  <label>Time Speed
+    <select id="time-speed" class="btn" style="padding:2px 6px;">
+      <option value="1">Realtime (1x)</option>
+      <option value="60">1 min/sec (60x)</option>
+      <option value="3600">1 hr/sec (3600x)</option>
+    </select>
+  </label>
+</div>
+
+<!-- Target Inspector Panel -->
+<div id="inspector" class="ui-panel">
+  <h2 id="obj-name">M31 - Andromeda Galaxy</h2>
+  <div class="info-row"><span>Type:</span><span class="info-val" id="obj-type">Spiral Galaxy</span></div>
+  <div class="info-row"><span>Magnitude:</span><span class="info-val" id="obj-mag">3.4</span></div>
+  <div class="info-row"><span>RA / Dec:</span><span class="info-val" id="obj-radec">00h 42m / +41° 16'</span></div>
+  <div class="info-row"><span>Altitude / Azimuth:</span><span class="info-val" id="obj-altaz">45.2° / 120.4°</span></div>
+</div>
+
+<script>
+// --- Comprehensive Unified Real Star Dataset ---
+const STARS = [
+  // Orion
+  { name: "Betelgeuse", ra: 88.79, dec: 7.40, mag: 0.50, bv: 1.85 },
+  { name: "Rigel", ra: 78.63, dec: -8.20, mag: 0.13, bv: -0.03 },
+  { name: "Bellatrix", ra: 81.28, dec: 6.35, mag: 1.64, bv: -0.22 },
+  { name: "Mintaka", ra: 83.00, dec: -0.30, mag: 2.23, bv: -0.22 },
+  { name: "Alnilam", ra: 84.05, dec: -1.20, mag: 1.69, bv: -0.18 },
+  { name: "Alnitak", ra: 85.19, dec: -1.94, mag: 1.74, bv: -0.21 },
+  { name: "Saiph", ra: 86.94, dec: -9.67, mag: 2.07, bv: -0.18 },
+  { name: "Meissa", ra: 83.78, dec: 9.93, mag: 3.33, bv: -0.18 },
+
+  // Ursa Major & Minor
+  { name: "Dubhe", ra: 165.93, dec: 61.75, mag: 1.79, bv: 1.07 },
+  { name: "Merak", ra: 165.46, dec: 56.38, mag: 2.37, bv: 0.02 },
+  { name: "Phecda", ra: 178.46, dec: 53.70, mag: 2.44, bv: 0.00 },
+  { name: "Megrez", ra: 183.86, dec: 57.03, mag: 3.31, bv: 0.08 },
+  { name: "Alioth", ra: 193.51, dec: 55.96, mag: 1.77, bv: -0.02 },
+  { name: "Mizar", ra: 200.98, dec: 54.92, mag: 2.23, bv: 0.02 },
+  { name: "Alkaid", ra: 206.89, dec: 49.31, mag: 1.85, bv: -0.19 },
+  { name: "Talitha", ra: 134.81, dec: 48.04, mag: 3.12, bv: 0.20 },
+  { name: "Tania Australis", ra: 155.46, dec: 41.50, mag: 3.06, bv: 1.15 },
+  { name: "Polaris", ra: 37.95, dec: 89.26, mag: 1.98, bv: 0.60 },
+  { name: "Kochab", ra: 222.67, dec: 74.16, mag: 2.07, bv: 1.47 },
+  { name: "Pherkad", ra: 230.17, dec: 71.83, mag: 3.00, bv: 0.05 },
+  { name: "Yildun", ra: 260.52, dec: 86.59, mag: 4.35, bv: 0.00 },
+  { name: "Zeta UMi", ra: 236.00, dec: 77.79, mag: 4.29, bv: 0.02 },
+  { name: "Eta UMi", ra: 244.38, dec: 75.76, mag: 4.95, bv: 0.38 },
+  { name: "Epsilon UMi", ra: 254.24, dec: 82.04, mag: 4.21, bv: 0.95 },
+
+  // Cassiopeia & Cygnus
+  { name: "Schedar", ra: 10.13, dec: 56.54, mag: 1.88, bv: 1.17 },
+  { name: "Caph", ra: 2.29, dec: 59.15, mag: 2.28, bv: 0.34 },
+  { name: "Gamma Cas", ra: 14.18, dec: 60.72, mag: 2.15, bv: -0.15 },
+  { name: "Ruchbah", ra: 20.35, dec: 60.24, mag: 2.68, bv: 0.13 },
+  { name: "Segin", ra: 28.60, dec: 63.67, mag: 3.35, bv: -0.10 },
+  { name: "Deneb", ra: 310.35, dec: 45.28, mag: 1.25, bv: 0.09 },
+  { name: "Sadr", ra: 305.56, dec: 40.26, mag: 2.23, bv: 0.67 },
+  { name: "Gienah", ra: 312.02, dec: 33.97, mag: 2.48, bv: -0.06 },
+  { name: "Albireo", ra: 292.68, dec: 27.96, mag: 3.05, bv: 1.03 },
+  { name: "Fawaris", ra: 294.97, dec: 45.13, mag: 2.87, bv: -0.12 },
+
+  // Leo, Taurus, Gemini
+  { name: "Regulus", ra: 152.09, dec: 11.97, mag: 1.36, bv: -0.11 },
+  { name: "Algieba", ra: 155.55, dec: 19.84, mag: 2.01, bv: 1.15 },
+  { name: "Denebola", ra: 177.27, dec: 14.57, mag: 2.14, bv: 0.09 },
+  { name: "Zosma", ra: 168.53, dec: 20.52, mag: 2.56, bv: 0.12 },
+  { name: "Rasalas", ra: 148.17, dec: 26.00, mag: 3.88, bv: 1.10 },
+  { name: "Adhafera", ra: 154.17, dec: 23.42, mag: 3.44, bv: 0.60 },
+  { name: "Chertan", ra: 168.53, dec: 15.43, mag: 3.33, bv: 0.12 },
+  { name: "Subra", ra: 146.72, dec: 9.89, mag: 3.52, bv: 0.25 },
+  { name: "Aldebaran", ra: 68.98, dec: 16.51, mag: 0.85, bv: 1.54 },
+  { name: "Elnath", ra: 81.57, dec: 28.61, mag: 1.65, bv: -0.13 },
+  { name: "Tiaki", ra: 84.41, dec: 21.14, mag: 2.97, bv: -0.19 },
+  { name: "Ain", ra: 67.15, dec: 19.18, mag: 3.53, bv: 1.01 },
+  { name: "Gamma Tau", ra: 64.60, dec: 15.63, mag: 3.65, bv: 0.98 },
+  { name: "Lambda Tau", ra: 60.17, dec: 12.49, mag: 3.41, bv: -0.10 },
+  { name: "Pollux", ra: 116.33, dec: 28.02, mag: 1.14, bv: 1.00 },
+  { name: "Castor", ra: 113.65, dec: 31.88, mag: 1.58, bv: 0.03 },
+  { name: "Alhena", ra: 99.43, dec: 16.39, mag: 1.93, bv: 0.00 },
+  { name: "Wasat", ra: 108.60, dec: 21.97, mag: 3.50, bv: 0.33 },
+  { name: "Mebsuta", ra: 99.85, dec: 25.13, mag: 3.06, bv: 1.40 },
+  { name: "Mekbuda", ra: 106.02, dec: 20.57, mag: 4.01, bv: 0.80 },
+  { name: "Propus", ra: 93.73, dec: 22.51, mag: 3.31, bv: 1.60 },
+  { name: "Alzirr", ra: 98.83, dec: 12.90, mag: 3.35, bv: 0.30 },
+
+  // Scorpius, Sagittarius, Pegasus
+  { name: "Antares", ra: 247.35, dec: -26.43, mag: 0.96, bv: 1.83 },
+  { name: "Shaula", ra: 262.69, dec: -37.10, mag: 1.62, bv: -0.22 },
+  { name: "Sargas", ra: 264.33, dec: -42.99, mag: 1.86, bv: 0.90 },
+  { name: "Dschubba", ra: 240.00, dec: -22.62, mag: 2.29, bv: -0.20 },
+  { name: "Graffias", ra: 241.36, dec: -19.80, mag: 2.56, bv: -0.05 },
+  { name: "Fang", ra: 238.93, dec: -26.11, mag: 2.89, bv: -0.20 },
+  { name: "Paikauhale", ra: 248.97, dec: -28.22, mag: 2.82, bv: -0.22 },
+  { name: "Larawag", ra: 240.42, dec: -34.29, mag: 2.29, bv: 1.15 },
+  { name: "Girtab", ra: 263.11, dec: -39.03, mag: 2.39, bv: -0.20 },
+  { name: "Lesath", ra: 262.65, dec: -37.29, mag: 2.70, bv: -0.22 },
+  { name: "Kaus Australis", ra: 276.04, dec: -34.38, mag: 1.79, bv: -0.03 },
+  { name: "Nunki", ra: 282.51, dec: -26.29, mag: 2.05, bv: -0.22 },
+  { name: "Kaus Media", ra: 274.62, dec: -29.83, mag: 2.72, bv: 1.15 },
+  { name: "Kaus Borealis", ra: 276.98, dec: -25.42, mag: 2.82, bv: 1.05 },
+  { name: "Ascella", ra: 286.19, dec: -29.88, mag: 2.60, bv: 0.10 },
+  { name: "Alnasl", ra: 271.43, dec: -30.42, mag: 2.98, bv: 1.00 },
+  { name: "Phi Sgr", ra: 281.42, dec: -26.99, mag: 3.17, bv: -0.12 },
+  { name: "Hecatebolus", ra: 286.72, dec: -27.67, mag: 3.31, bv: -0.10 },
+  { name: "Scheat", ra: 345.62, dec: 28.08, mag: 2.44, bv: 1.65 },
+  { name: "Markab", ra: 345.94, dec: 15.21, mag: 2.49, bv: -0.04 },
+  { name: "Algenib", ra: 3.31, dec: 15.18, mag: 2.83, bv: -0.23 },
+  { name: "Enif", ra: 326.04, dec: 9.87, mag: 2.38, bv: 1.55 },
+  { name: "Homam", ra: 340.35, dec: 10.83, mag: 3.41, bv: -0.05 },
+  { name: "Biham", ra: 332.61, dec: 6.20, mag: 3.52, bv: 0.10 },
+  { name: "Matar", ra: 331.02, dec: 30.22, mag: 2.93, bv: 0.85 },
+
+  // Major Navigation & Constellation Anchors
+  { name: "Sirius", ra: 101.28, dec: -16.71, mag: -1.46, bv: 0.0 },
+  { name: "Adhara", ra: 104.66, dec: -28.97, mag: 1.50, bv: -0.21 },
+  { name: "Wezen", ra: 107.10, dec: -26.39, mag: 1.83, bv: 0.68 },
+  { name: "Mirzam", ra: 95.68, dec: -17.95, mag: 1.98, bv: -0.23 },
+  { name: "Aludra", ra: 111.02, dec: -29.30, mag: 2.45, bv: -0.10 },
+  { name: "Furud", ra: 94.88, dec: -30.06, mag: 3.02, bv: -0.22 },
+  { name: "Unurgunite", ra: 105.44, dec: -27.93, mag: 3.49, bv: -0.15 },
+  { name: "Procyon", ra: 114.82, dec: 5.22, mag: 0.34, bv: 0.42 },
+  { name: "Beta Cmi", ra: 108.03, dec: 8.29, mag: 2.89, bv: -0.15 },
+  { name: "Arcturus", ra: 213.91, dec: 19.18, mag: -0.05, bv: 1.23 },
+  { name: "Izar", ra: 221.25, dec: 27.07, mag: 2.35, bv: 0.97 },
+  { name: "Muphrid", ra: 208.67, dec: 18.39, mag: 2.68, bv: 0.58 },
+  { name: "Seginus", ra: 218.02, dec: 38.31, mag: 3.04, bv: 0.18 },
+  { name: "Nekkar", ra: 225.26, dec: 40.39, mag: 3.49, bv: 1.20 },
+  { name: "Rho Boo", ra: 217.96, dec: 30.37, mag: 3.57, bv: 1.30 },
+  { name: "Alkalurops", ra: 231.57, dec: 37.38, mag: 4.31, bv: 0.30 },
+  { name: "Vega", ra: 279.23, dec: 38.78, mag: 0.03, bv: 0.0 },
+  { name: "Sulafat", ra: 284.74, dec: 32.69, mag: 3.25, bv: -0.05 },
+  { name: "Sheliak", ra: 282.52, dec: 33.36, mag: 3.52, bv: -0.08 },
+  { name: "Delta2 Lyr", ra: 283.67, dec: 36.90, mag: 4.22, bv: 1.50 },
+  { name: "Altair", ra: 297.69, dec: 8.87, mag: 0.77, bv: 0.22 },
+  { name: "Tarazed", ra: 296.57, dec: 10.61, mag: 2.72, bv: 1.52 },
+  { name: "Alshain", ra: 298.83, dec: 6.41, mag: 3.71, bv: 0.81 },
+  { name: "Deneb Okab", ra: 286.33, dec: 13.86, mag: 2.99, bv: -0.20 },
+  { name: "Theta Aql", ra: 302.21, dec: -0.82, mag: 3.24, bv: -0.10 },
+  { name: "Delta Aql", ra: 290.82, dec: 3.11, mag: 3.36, bv: 0.32 },
+  { name: "Lambda Aql", ra: 286.58, dec: -4.88, mag: 3.43, bv: -0.15 },
+  { name: "Spica", ra: 201.29, dec: -11.16, mag: 0.98, bv: -0.23 },
+  { name: "Porrima", ra: 190.41, dec: -1.45, mag: 2.74, bv: 0.36 },
+  { name: "Vindemiatrix", ra: 195.54, dec: 10.96, mag: 2.85, bv: 0.94 },
+  { name: "Heze", ra: 203.70, dec: -0.60, mag: 3.38, bv: 0.10 },
+  { name: "Zavijava", ra: 177.67, dec: 1.77, mag: 3.61, bv: 0.55 },
+  { name: "Minelauva", ra: 193.90, dec: 3.39, mag: 3.39, bv: 1.20 },
+  { name: "Syrma", ra: 212.43, dec: -5.99, mag: 4.07, bv: 0.20 },
+  { name: "Alpheratz", ra: 2.10, dec: 29.09, mag: 2.07, bv: -0.11 },
+  { name: "Mirach", ra: 17.43, dec: 35.62, mag: 2.07, bv: 1.58 },
+  { name: "Almach", ra: 30.97, dec: 42.33, mag: 2.10, bv: 1.37 },
+  { name: "Delta And", ra: 9.87, dec: 30.86, mag: 3.27, bv: 1.10 },
+  { name: "Mu And", ra: 13.20, dec: 38.50, mag: 3.86, bv: 0.12 },
+  { name: "Nembus", ra: 23.73, dec: 48.62, mag: 3.59, bv: 1.25 },
+  { name: "Hamal", ra: 31.79, dec: 23.46, mag: 2.01, bv: 1.15 },
+  { name: "Sheratan", ra: 28.65, dec: 20.81, mag: 2.64, bv: 0.15 },
+  { name: "Mesarthim", ra: 26.49, dec: 19.29, mag: 3.88, bv: -0.05 },
+  { name: "Bharani", ra: 42.48, dec: 27.26, mag: 3.61, bv: -0.10 },
+  { name: "Mirfak", ra: 51.08, dec: 49.86, mag: 1.79, bv: 0.48 },
+  { name: "Algol", ra: 47.04, dec: 40.96, mag: 2.12, bv: -0.05 },
+  { name: "Atik", ra: 58.53, dec: 31.88, mag: 2.84, bv: -0.18 },
+  { name: "Menkib", ra: 59.74, dec: 35.79, mag: 3.98, bv: -0.15 },
+  { name: "Gamma Per", ra: 46.22, dec: 53.51, mag: 2.91, bv: 0.80 },
+  { name: "Delta Per", ra: 50.72, dec: 47.78, mag: 3.01, bv: -0.15 },
+  { name: "Miram", ra: 42.68, dec: 55.89, mag: 3.77, bv: 1.05 },
+  { name: "Capella", ra: 79.17, dec: 45.99, mag: 0.08, bv: 0.8 },
+  { name: "Menkalinan", ra: 89.88, dec: 44.95, mag: 1.90, bv: 0.05 },
+  { name: "Mahasim", ra: 89.92, dec: 37.21, mag: 2.65, bv: 0.10 },
+  { name: "Hassaleh", ra: 74.22, dec: 33.17, mag: 2.69, bv: 1.30 },
+  { name: "Almaaz", ra: 75.50, dec: 43.82, mag: 3.03, bv: 0.35 },
+  { name: "Haedus", ra: 75.64, dec: 41.08, mag: 3.69, bv: -0.18 },
+
+  // Ophiuchus, Hercules, Cetus, Hydra, Crux, Centaurus, Corvus, Corona, Libra, Cepheus, Draco
+  { name: "Rasalhague", ra: 263.73, dec: 12.56, mag: 2.08, bv: 0.15 },
+  { name: "Sabik", ra: 257.59, dec: -15.72, mag: 2.43, bv: -0.03 },
+  { name: "Han", ra: 249.29, dec: -10.57, mag: 2.54, bv: -0.22 },
+  { name: "Cebalrai", ra: 266.86, dec: 4.57, mag: 2.76, bv: 1.10 },
+  { name: "Yed Prior", ra: 242.08, dec: -3.70, mag: 2.73, bv: 1.55 },
+  { name: "Yed Posterior", ra: 242.76, dec: -4.69, mag: 3.23, bv: 1.12 },
+  { name: "Marfik", ra: 247.72, dec: 1.98, mag: 3.82, bv: 0.20 },
+  { name: "Kornephoros", ra: 247.55, dec: 21.49, mag: 2.78, bv: 0.75 },
+  { name: "Rasalgethi", ra: 257.21, dec: 14.39, mag: 3.31, bv: 1.42 },
+  { name: "Ruticulus", ra: 247.88, dec: 31.60, mag: 2.81, bv: 0.65 },
+  { name: "Sarin", ra: 258.78, dec: 24.84, mag: 3.12, bv: 0.38 },
+  { name: "Sophian", ra: 258.75, dec: 36.81, mag: 3.16, bv: -0.15 },
+  { name: "Eta Her", ra: 251.32, dec: 38.92, mag: 3.48, bv: 0.85 },
+  { name: "Epsilon Her", ra: 254.98, dec: 30.92, mag: 3.92, bv: -0.12 },
+  { name: "Theta Her", ra: 266.38, dec: 37.25, mag: 3.86, bv: 1.30 },
+  { name: "Diphda", ra: 12.12, dec: -17.99, mag: 2.04, bv: 1.02 },
+  { name: "Alpha Cet", ra: 45.57, dec: 4.09, mag: 2.54, bv: 1.64 },
+  { name: "Baten Kaitos", ra: 28.48, dec: -10.33, mag: 3.74, bv: 1.02 },
+  { name: "Mira", ra: 32.22, dec: -2.98, mag: 3.04, bv: 1.50 },
+  { name: "Kaffaljidhma", ra: 37.05, dec: 3.24, mag: 3.47, bv: 0.25 },
+  { name: "Deneb Kaitos Shemali", ra: 0.62, dec: -8.82, mag: 3.56, bv: 0.92 },
+  { name: "Alphard", ra: 141.89, dec: -8.66, mag: 1.98, bv: 1.44 },
+  { name: "Zeta Hya", ra: 173.81, dec: -31.86, mag: 3.11, bv: 0.95 },
+  { name: "Epsilon Hya", ra: 131.70, dec: 6.42, mag: 3.38, bv: 0.62 },
+  { name: "Minchir", ra: 129.68, dec: 3.34, mag: 4.45, bv: 1.40 },
+  { name: "Gamma Hya", ra: 199.72, dec: -23.18, mag: 2.99, bv: 0.90 },
+  { name: "Pi Hya", ra: 211.58, dec: -26.68, mag: 3.25, bv: 1.10 },
+  { name: "Acrux", ra: 186.65, dec: -63.10, mag: 0.77, bv: -0.24 },
+  { name: "Mimosa", ra: 191.93, dec: -59.69, mag: 1.25, bv: -0.23 },
+  { name: "Gacrux", ra: 187.79, dec: -57.11, mag: 1.64, bv: 1.59 },
+  { name: "Imai", ra: 183.98, dec: -58.74, mag: 2.79, bv: -0.22 },
+  { name: "Ginan", ra: 185.34, dec: -60.40, mag: 3.59, bv: 1.15 },
+  { name: "Rigil Kentaurus", ra: 219.90, dec: -60.83, mag: -0.01, bv: 0.71 },
+  { name: "Hadar", ra: 210.95, dec: -60.37, mag: 0.61, bv: -0.23 },
+  { name: "Menkent", ra: 211.67, dec: -36.37, mag: 2.06, bv: 1.00 },
+  { name: "Muhlifain", ra: 190.38, dec: -48.96, mag: 2.22, bv: 0.28 },
+  { name: "Epsilon Cen", ra: 204.97, dec: -53.46, mag: 2.29, bv: -0.22 },
+  { name: "Zeta Cen", ra: 208.88, dec: -47.29, mag: 2.55, bv: -0.21 },
+  { name: "Gienah Corvi", ra: 183.95, dec: -17.54, mag: 2.58, bv: -0.12 },
+  { name: "Algorab", ra: 187.46, dec: -16.52, mag: 2.94, bv: -0.06 },
+  { name: "Kraz", ra: 188.59, dec: -23.39, mag: 2.65, bv: 0.89 },
+  { name: "Alpha Crv", ra: 182.13, dec: -24.73, mag: 4.02, bv: 0.38 },
+  { name: "Alphecca", ra: 233.67, dec: 26.71, mag: 2.22, bv: -0.02 },
+  { name: "Beta CrB", ra: 232.00, dec: 29.11, mag: 3.66, bv: 0.28 },
+  { name: "Zubenelgenubi", ra: 222.72, dec: -16.04, mag: 2.75, bv: 0.15 },
+  { name: "Zubeneschamali", ra: 229.25, dec: -9.38, mag: 2.61, bv: -0.11 },
+  { name: "Zubenelhakrabi", ra: 233.17, dec: -14.79, mag: 3.91, bv: 1.12 },
+  { name: "Alderamin", ra: 326.04, dec: 62.58, mag: 2.45, bv: 0.22 },
+  { name: "Alfirk", ra: 321.70, dec: 70.56, mag: 3.23, bv: -0.21 },
+  { name: "Errai", ra: 359.85, dec: 77.63, mag: 3.21, bv: 1.03 },
+  { name: "Eltanin", ra: 269.15, dec: 51.48, mag: 2.24, bv: 1.52 },
+  { name: "Rastaban", ra: 262.60, dec: 52.30, mag: 2.79, bv: 0.98 },
+  { name: "Thuban", ra: 209.11, dec: 64.38, mag: 3.67, bv: -0.05 },
+
+  // Southern Navigation & Far-South Anchors
+  { name: "Peacock", ra: 306.41, dec: -56.74, mag: 1.94, bv: -0.20 },
+  { name: "Alnair", ra: 332.06, dec: -46.96, mag: 1.74, bv: -0.13 },
+  { name: "Gruid", ra: 340.67, dec: -37.36, mag: 2.07, bv: 1.60 },
+  { name: "Ankaa", ra: 6.57, dec: -42.31, mag: 2.40, bv: 1.08 },
+  { name: "Alpha Lup", ra: 219.98, dec: -47.38, mag: 2.30, bv: -0.22 },
+  { name: "Beta Lup", ra: 224.28, dec: -43.13, mag: 2.68, bv: -0.21 },
+  { name: "Alpha Ara", ra: 263.40, dec: -49.88, mag: 2.84, bv: -0.18 },
+  { name: "Beta Ara", ra: 261.32, dec: -55.53, mag: 2.85, bv: 1.45 },
+  { name: "Atria", ra: 252.17, dec: -69.03, mag: 1.91, bv: 1.44 },
+  { name: "Beta TrA", ra: 237.16, dec: -63.43, mag: 2.83, bv: 0.29 },
+  { name: "Gatria", ra: 228.18, dec: -68.68, mag: 2.87, bv: 0.90 },
+  { name: "Alpha Ind", ra: 312.44, dec: -47.29, mag: 3.11, bv: 0.98 },
+  { name: "Beta Ind", ra: 342.33, dec: -58.45, mag: 3.67, bv: 1.25 },
+  { name: "Alpha Tuc", ra: 334.62, dec: -60.26, mag: 2.87, bv: 1.08 },
+  { name: "Gamma Tuc", ra: 348.88, dec: -58.24, mag: 3.99, bv: 0.28 },
+  { name: "Alpha Hyi", ra: 29.58, dec: -61.57, mag: 2.86, bv: 0.28 },
+  { name: "Beta Hyi", ra: 6.44, dec: -77.25, mag: 2.82, bv: 0.62 },
+  { name: "Alpha Vol", ra: 132.14, dec: -66.39, mag: 4.00, bv: 0.25 },
+  { name: "Beta Vol", ra: 126.43, dec: -66.14, mag: 3.77, bv: 1.05 },
+  { name: "Alpha Dor", ra: 68.42, dec: -55.04, mag: 3.30, bv: -0.12 },
+  { name: "Beta Dor", ra: 83.42, dec: -62.48, mag: 3.76, bv: 0.82 },
+  { name: "Alpha Men", ra: 92.90, dec: -74.75, mag: 5.08, bv: 0.72 },
+  { name: "Alpha Oct", ra: 320.18, dec: -77.02, mag: 5.15, bv: 0.42 },
+  { name: "Sigma Oct", ra: 317.22, dec: -88.95, mag: 5.45, bv: 0.25 },
+  { name: "Suhail", ra: 137.00, dec: -43.43, mag: 2.23, bv: 1.66 },
+  { name: "Naos", ra: 120.90, dec: -40.00, mag: 2.21, bv: -0.27 },
+  { name: "Avior", ra: 125.63, dec: -59.51, mag: 1.86, bv: 1.20 },
+  { name: "Aspidiske", ra: 139.27, dec: -69.72, mag: 2.21, bv: 0.18 },
+  { name: "Alpha Col", ra: 84.91, dec: -34.07, mag: 2.65, bv: -0.12 },
+  { name: "Beta Col", ra: 87.72, dec: -35.77, mag: 3.12, bv: 1.15 },
+  { name: "Alpha Cnr", ra: 124.58, dec: 3.55, mag: 2.89, bv: 0.42 },
+  { name: "Alpha Lib", ra: 222.72, dec: -16.04, mag: 2.75, bv: 0.15 },
+  { name: "Beta Lib", ra: 229.25, dec: -9.38, mag: 2.61, bv: -0.11 },
+  { name: "Alpha CrA", ra: 287.30, dec: -37.90, mag: 4.11, bv: 0.10 },
+  { name: "Beta CrA", ra: 288.75, dec: -39.34, mag: 4.10, bv: 1.40 },
+  { name: "Alpha Crt", ra: 164.80, dec: -18.29, mag: 4.08, bv: 1.10 },
+  { name: "Beta Crt", ra: 167.92, dec: -22.82, mag: 4.46, bv: 0.12 },
+  { name: "Alpha Scl", ra: 14.88, dec: -29.36, mag: 4.30, bv: -0.18 },
+  { name: "Alpha For", ra: 48.00, dec: -32.29, mag: 3.86, bv: 0.54 },
+  { name: "Alpha Hor", ra: 63.60, dec: -42.30, mag: 3.85, bv: 1.10 },
+  { name: "Alpha Cae", ra: 71.85, dec: -41.85, mag: 4.44, bv: 0.32 },
+  { name: "Alpha Pic", ra: 102.00, dec: -61.94, mag: 3.24, bv: 0.18 },
+  { name: "Alpha Ret", ra: 63.60, dec: -62.47, mag: 3.33, bv: 0.95 },
+  { name: "Alpha Mic", ra: 314.80, dec: -33.78, mag: 4.89, bv: 0.90 },
+  { name: "Alpha Tel", ra: 277.72, dec: -45.97, mag: 3.49, bv: -0.18 },
+  { name: "Alpha Sge", ra: 295.22, dec: 17.79, mag: 4.39, bv: 0.65 },
+  { name: "Beta Sge", ra: 295.28, dec: 17.48, mag: 4.37, bv: 0.70 },
+  { name: "Alpha Vul", ra: 292.18, dec: 24.66, mag: 4.44, bv: 1.52 },
+  { name: "Alpha Del", ra: 309.90, dec: 15.91, mag: 3.77, bv: -0.06 },
+  { name: "Beta Del", ra: 309.30, dec: 14.59, mag: 3.64, bv: 0.38 },
+  { name: "Alpha Equ", ra: 318.98, dec: 5.25, mag: 3.92, bv: 0.58 },
+  { name: "Alpha Lnc", ra: 140.28, dec: 34.39, mag: 3.14, bv: 1.55 },
+  { name: "Alpha Lmi", ra: 163.35, dec: 34.21, mag: 3.83, bv: 0.38 },
+  { name: "Alpha Com", ra: 197.72, dec: 17.53, mag: 4.32, bv: 0.45 },
+  { name: "Beta Com", ra: 198.00, dec: 27.88, mag: 4.26, bv: 0.58 },
+  { name: "Cor Caroli", ra: 194.02, dec: 38.31, mag: 2.89, bv: -0.12 },
+  { name: "Chara", ra: 188.42, dec: 41.36, mag: 4.26, bv: 0.59 },
+  { name: "Alpha Lcr", ra: 337.03, dec: 50.28, mag: 3.76, bv: 0.10 },
+  { name: "Alpha Cam", ra: 74.52, dec: 66.34, mag: 4.29, bv: -0.12 },
+  { name: "Beta Cam", ra: 75.82, dec: 60.44, mag: 4.03, bv: 0.92 },
+
+  // HD Catalog Astronomical Survey Stars
+  { name: "HD 120315", ra: 206.88, dec: 49.31, mag: 4.10, bv: -0.18 },
+  { name: "HD 141569", ra: 237.40, dec: -3.92, mag: 4.35, bv: 0.10 },
+  { name: "HD 185395", ra: 294.20, dec: 45.12, mag: 4.48, bv: 0.38 },
+  { name: "HD 218396", ra: 346.75, dec: 21.14, mag: 4.62, bv: 0.25 },
+  { name: "HD 10800", ra: 26.35, dec: 42.18, mag: 4.75, bv: 0.61 },
+  { name: "HD 432", ra: 10.13, dec: 56.54, mag: 4.88, bv: 0.50 },
+  { name: "HD 87901", ra: 152.09, dec: 11.97, mag: 5.12, bv: -0.08 },
+  { name: "HD 158633", ra: 261.22, dec: 67.24, mag: 5.25, bv: 0.77 },
+  { name: "HD 209458", ra: 330.79, dec: 18.88, mag: 5.40, bv: 0.58 },
+  { name: "HD 128311", ra: 219.02, dec: 24.74, mag: 5.55, bv: 0.98 },
+  { name: "HD 189733", ra: 300.04, dec: 22.71, mag: 5.68, bv: 0.93 },
+  { name: "HD 73256", ra: 129.08, dec: -29.25, mag: 5.82, bv: 0.85 },
+  { name: "HD 102195", ra: 176.43, dec: 2.82, mag: 5.95, bv: 0.84 }
+];
+
+// Modern IAU Constellation Stick Figures
+const CONSTELLATIONS = [
+  { name: "Orion", lines: [["Betelgeuse","Bellatrix"],["Bellatrix","Mintaka"],["Mintaka","Alnilam"],["Alnilam","Alnitak"],["Alnitak","Saiph"],["Saiph","Rigel"],["Rigel","Betelgeuse"],["Betelgeuse","Alnilam"],["Bellatrix","Meissa"],["Betelgeuse","Meissa"]] },
+  { name: "Ursa Major", lines: [["Dubhe","Merak"],["Merak","Phecda"],["Phecda","Megrez"],["Megrez","Alioth"],["Alioth","Mizar"],["Mizar","Alkaid"],["Megrez","Dubhe"],["Phecda","Tania Australis"],["Merak","Talitha"]] },
+  { name: "Ursa Minor", lines: [["Polaris","Yildun"],["Yildun","Zeta UMi"],["Zeta UMi","Eta UMi"],["Eta UMi","Pherkad"],["Pherkad","Kochab"],["Kochab","Epsilon UMi"],["Epsilon UMi","Zeta UMi"]] },
+  { name: "Cassiopeia", lines: [["Caph","Schedar"],["Schedar","Gamma Cas"],["Gamma Cas","Ruchbah"],["Ruchbah","Segin"]] },
+  { name: "Cygnus", lines: [["Deneb","Sadr"],["Sadr","Albireo"],["Gienah","Sadr"],["Fawaris","Sadr"]] },
+  { name: "Leo", lines: [["Regulus","Algieba"],["Algieba","Adhafera"],["Adhafera","Rasalas"],["Algieba","Zosma"],["Zosma","Denebola"],["Zosma","Chertan"],["Chertan","Regulus"],["Regulus","Subra"]] },
+  { name: "Taurus", lines: [["Aldebaran","Elnath"],["Aldebaran","Tiaki"],["Aldebaran","Ain"],["Ain","Gamma Tau"],["Gamma Tau","Lambda Tau"]] },
+  { name: "Gemini", lines: [["Castor","Pollux"],["Castor","Mebsuta"],["Mebsuta","Propus"],["Pollux","Wasat"],["Wasat","Mekbuda"],["Mekbuda","Alhena"],["Wasat","Alzirr"]] },
+  { name: "Scorpius", lines: [["Graffias","Dschubba"],["Dschubba","Fang"],["Fang","Antares"],["Antares","Paikauhale"],["Paikauhale","Larawag"],["Larawag","Sargas"],["Sargas","Girtab"],["Girtab","Shaula"],["Shaula","Lesath"]] },
+  { name: "Sagittarius", lines: [["Kaus Borealis","Kaus Media"],["Kaus Media","Kaus Australis"],["Kaus Media","Alnasl"],["Kaus Australis","Ascella"],["Ascella","Nunki"],["Nunki","Kaus Borealis"],["Nunki","Phi Sgr"],["Phi Sgr","Hecatebolus"]] },
+  { name: "Pegasus", lines: [["Markab","Scheat"],["Scheat","Alpheratz"],["Alpheratz","Algenib"],["Algenib","Markab"],["Markab","Homam"],["Homam","Biham"],["Biham","Enif"],["Scheat","Matar"]] },
+  { name: "Canis Major", lines: [["Sirius","Mirzam"],["Sirius","Adhara"],["Adhara","Wezen"],["Wezen","Aludra"],["Wezen","Furud"],["Adhara","Unurgunite"]] },
+  { name: "Canis Minor", lines: [["Procyon","Beta Cmi"]] },
+  { name: "Boötes", lines: [["Arcturus","Izar"],["Izar","Seginus"],["Seginus","Nekkar"],["Nekkar","Rho Boo"],["Arcturus","Muphrid"],["Seginus","Alkalurops"]] },
+  { name: "Lyra", lines: [["Vega","Sheliak"],["Sheliak","Sulafat"],["Sulafat","Delta2 Lyr"],["Delta2 Lyr","Vega"]] },
+  { name: "Aquila", lines: [["Altair","Tarazed"],["Altair","Alshain"],["Altair","Deneb Okab"],["Deneb Okab","Theta Aql"],["Theta Aql","Delta Aql"],["Delta Aql","Lambda Aql"]] },
+  { name: "Virgo", lines: [["Spica","Heze"],["Heze","Porrima"],["Porrima","Zavijava"],["Porrima","Vindemiatrix"],["Vindemiatrix","Minelauva"],["Minelauva","Porrima"],["Spica","Syrma"]] },
+  { name: "Andromeda", lines: [["Alpheratz","Delta And"],["Delta And","Mirach"],["Mirach","Almach"],["Mirach","Mu And"],["Delta And","Nembus"]] },
+  { name: "Aries", lines: [["Hamal","Sheratan"],["Sheratan","Mesarthim"],["Hamal","Bharani"]] },
+  { name: "Perseus", lines: [["Mirfak","Algol"],["Mirfak","Gamma Per"],["Mirfak","Delta Per"],["Algol","Atik"],["Atik","Menkib"],["Gamma Per","Miram"]] },
+  { name: "Auriga", lines: [["Capella","Menkalinan"],["Menkalinan","Elnath"],["Elnath","Hassaleh"],["Hassaleh","Mahasim"],["Mahasim","Capella"],["Capella","Almaaz"],["Almaaz","Haedus"]] },
+  { name: "Ophiuchus", lines: [["Rasalhague","Cebalrai"],["Rasalhague","Yed Prior"],["Yed Prior","Yed Posterior"],["Yed Posterior","Han"],["Han","Sabik"],["Sabik","Marfik"]] },
+  { name: "Hercules", lines: [["Kornephoros","Rasalgethi"],["Kornephoros","Ruticulus"],["Ruticulus","Sarin"],["Sarin","Sophian"],["Sophian","Eta Her"],["Eta Her","Epsilon Her"],["Epsilon Her","Ruticulus"],["Sophian","Theta Her"]] },
+  { name: "Cetus", lines: [["Diphda","Deneb Kaitos Shemali"],["Deneb Kaitos Shemali","Baten Kaitos"],["Baten Kaitos","Mira"],["Mira","Alpha Cet"],["Alpha Cet","Kaffaljidhma"]] },
+  { name: "Hydra", lines: [["Alphard","Zeta Hya"],["Zeta Hya","Epsilon Hya"],["Epsilon Hya","Minchir"],["Alphard","Gamma Hya"],["Gamma Hya","Pi Hya"]] },
+  { name: "Crux", lines: [["Acrux","Gacrux"],["Mimosa","Imai"],["Acrux","Ginan"]] },
+  { name: "Centaurus", lines: [["Rigil Kentaurus","Hadar"],["Hadar","Epsilon Cen"],["Epsilon Cen","Menkent"],["Menkent","Muhlifain"],["Muhlifain","Zeta Cen"]] },
+  { name: "Corvus", lines: [["Gienah Corvi","Algorab"],["Algorab","Kraz"],["Kraz","Alpha Crv"],["Alpha Crv","Gienah Corvi"]] },
+  { name: "Corona Borealis", lines: [["Alphecca","Beta CrB"]] },
+  { name: "Libra", lines: [["Zubenelgenubi","Zubeneschamali"],["Zubeneschamali","Zubenelhakrabi"]] },
+  { name: "Cepheus", lines: [["Alderamin","Alfirk"],["Alfirk","Errai"]] },
+  { name: "Draco", lines: [["Eltanin","Rastaban"],["Rastaban","Thuban"]] },
+  { name: "Grus", lines: [["Alnair","Gruid"]] },
+  { name: "Phoenix", lines: [["Ankaa","Alpha Hyi"]] },
+  { name: "Lupus", lines: [["Alpha Lup","Beta Lup"]] },
+  { name: "Ara", lines: [["Alpha Ara","Beta Ara"]] },
+  { name: "Triangulum Australe", lines: [["Atria","Beta TrA"],["Beta TrA","Gatria"],["Gatria","Atria"]] },
+  { name: "Indus", lines: [["Alpha Ind","Beta Ind"]] },
+  { name: "Tucana", lines: [["Alpha Tuc","Gamma Tuc"]] },
+  { name: "Hydrus", lines: [["Alpha Hyi","Beta Hyi"]] },
+  { name: "Volans", lines: [["Alpha Vol","Beta Vol"]] },
+  { name: "Dorado", lines: [["Alpha Dor","Beta Dor"]] },
+  { name: "Vela", lines: [["Suhail","Aspidiske"]] },
+  { name: "Puppis", lines: [["Naos","Avior"]] },
+  { name: "Columba", lines: [["Alpha Col","Beta Col"]] },
+  { name: "Corona Australis", lines: [["Alpha CrA","Beta CrA"]] },
+  { name: "Crater", lines: [["Alpha Crt","Beta Crt"]] }
+];
+
+// FULL MESSIER CATALOG (M1 through M110)
+const MESSIER = [
+  { id: "M1", name: "Crab Nebula", ra: 83.63, dec: 22.01, mag: 8.4, type: "Supernova Remnant" },
+  { id: "M2", name: "Aquarius Cluster", ra: 323.36, dec: -0.82, mag: 6.3, type: "Globular Cluster" },
+  { id: "M3", name: "Canes Venatici Cluster", ra: 205.55, dec: 28.38, mag: 6.2, type: "Globular Cluster" },
+  { id: "M4", name: "Cat's Eye Cluster", ra: 245.90, dec: -26.53, mag: 5.6, type: "Globular Cluster" },
+  { id: "M5", name: "Rose Cluster", ra: 229.64, dec: 2.08, mag: 5.6, type: "Globular Cluster" },
+  { id: "M6", name: "Butterfly Cluster", ra: 260.00, dec: -32.22, mag: 4.2, type: "Open Cluster" },
+  { id: "M7", name: "Ptolemy's Cluster", ra: 268.46, dec: -34.82, mag: 3.3, type: "Open Cluster" },
+  { id: "M8", name: "Lagoon Nebula", ra: 270.92, dec: -24.38, mag: 6.0, type: "Emission Nebula" },
+  { id: "M9", name: "Ophiuchus Globular", ra: 259.80, dec: -18.52, mag: 7.7, type: "Globular Cluster" },
+  { id: "M10", name: "Ophiuchus Globular", ra: 254.29, dec: -4.10, mag: 6.4, type: "Globular Cluster" },
+  { id: "M11", name: "Wild Duck Cluster", ra: 277.78, dec: -6.27, mag: 6.3, type: "Open Cluster" },
+  { id: "M12", name: "Ophiuchus Globular", ra: 251.81, dec: -1.95, mag: 6.7, type: "Globular Cluster" },
+  { id: "M13", name: "Hercules Cluster", ra: 250.42, dec: 36.46, mag: 5.8, type: "Globular Cluster" },
+  { id: "M14", name: "Ophiuchus Globular", ra: 264.40, dec: -3.25, mag: 7.6, type: "Globular Cluster" },
+  { id: "M15", name: "Pegasus Cluster", ra: 322.49, dec: 12.17, mag: 6.2, type: "Globular Cluster" },
+  { id: "M16", name: "Eagle Nebula", ra: 274.70, dec: -13.79, mag: 6.0, type: "Emission Nebula" },
+  { id: "M17", name: "Omega Nebula", ra: 275.20, dec: -16.18, mag: 6.0, type: "Emission Nebula" },
+  { id: "M18", name: "Black Swan Cluster", ra: 274.63, dec: -17.13, mag: 7.5, type: "Open Cluster" },
+  { id: "M19", name: "Ophiuchus Globular", ra: 255.65, dec: -26.26, mag: 6.8, type: "Globular Cluster" },
+  { id: "M20", name: "Trifid Nebula", ra: 270.63, dec: -23.03, mag: 6.3, type: "Emission Nebula" },
+  { id: "M21", name: "Webb's Cross", ra: 271.18, dec: -22.50, mag: 6.5, type: "Open Cluster" },
+  { id: "M22", name: "Sagittarius Cluster", ra: 280.38, dec: -23.90, mag: 5.1, type: "Globular Cluster" },
+  { id: "M23", name: "Sagittarius Open Cluster", ra: 269.23, dec: -19.02, mag: 5.5, type: "Open Cluster" },
+  { id: "M24", name: "Sagittarius Star Cloud", ra: 274.70, dec: -18.55, mag: 4.6, type: "Star Cloud" },
+  { id: "M25", name: "Sagittarius Open Cluster", ra: 277.98, dec: -19.12, mag: 4.6, type: "Open Cluster" },
+  { id: "M26", name: "Scutum Cluster", ra: 281.30, dec: -9.40, mag: 8.0, type: "Open Cluster" },
+  { id: "M27", name: "Dumbbell Nebula", ra: 299.90, dec: 22.72, mag: 7.4, type: "Planetary Nebula" },
+  { id: "M28", name: "Sagittarius Globular", ra: 276.14, dec: -24.87, mag: 6.8, type: "Globular Cluster" },
+  { id: "M29", name: "Cooling Tower", ra: 305.97, dec: 38.52, mag: 7.1, type: "Open Cluster" },
+  { id: "M30", name: "Jellyfish Cluster", ra: 325.09, dec: -23.18, mag: 7.2, type: "Globular Cluster" },
+  { id: "M31", name: "Andromeda Galaxy", ra: 10.68, dec: 41.27, mag: 3.4, type: "Spiral Galaxy" },
+  { id: "M32", name: "Andromeda Satellite", ra: 10.67, dec: 40.87, mag: 8.1, type: "Dwarf Elliptical Galaxy" },
+  { id: "M33", name: "Triangulum Galaxy", ra: 23.46, dec: 30.66, mag: 5.7, type: "Spiral Galaxy" },
+  { id: "M34", name: "Spiral Cluster", ra: 40.50, dec: 42.78, mag: 5.5, type: "Open Cluster" },
+  { id: "M35", name: "Shoe-Buckle Cluster", ra: 92.23, dec: 24.33, mag: 5.3, type: "Open Cluster" },
+  { id: "M36", name: "Pinwheel Cluster", ra: 84.03, dec: 34.14, mag: 6.3, type: "Open Cluster" },
+  { id: "M37", name: "January Salt & Pepper", ra: 88.08, dec: 32.55, mag: 5.6, type: "Open Cluster" },
+  { id: "M38", name: "Starfish Cluster", ra: 82.18, dec: 35.85, mag: 6.4, type: "Open Cluster" },
+  { id: "M39", name: "Cygnus Open Cluster", ra: 323.05, dec: 48.43, mag: 4.6, type: "Open Cluster" },
+  { id: "M40", name: "Winnecke 4", ra: 185.55, dec: 58.08, mag: 8.4, type: "Double Star" },
+  { id: "M41", name: "Little Beehive Cluster", ra: 101.75, dec: -20.73, mag: 4.5, type: "Open Cluster" },
+  { id: "M42", name: "Orion Nebula", ra: 83.82, dec: -5.39, mag: 4.0, type: "Emission Nebula" },
+  { id: "M43", name: "De Mairan's Nebula", ra: 83.87, dec: -5.27, mag: 9.0, type: "Emission Nebula" },
+  { id: "M44", name: "Beehive Cluster", ra: 130.10, dec: 19.67, mag: 3.7, type: "Open Cluster" },
+  { id: "M45", name: "Pleiades", ra: 56.75, dec: 24.11, mag: 1.6, type: "Open Cluster" },
+  { id: "M46", name: "Puppis Open Cluster", ra: 115.43, dec: -14.82, mag: 6.1, type: "Open Cluster" },
+  { id: "M47", name: "Puppis Cluster", ra: 114.15, dec: -14.50, mag: 4.2, type: "Open Cluster" },
+  { id: "M48", name: "Hydra Open Cluster", ra: 123.43, dec: -5.75, mag: 5.5, type: "Open Cluster" },
+  { id: "M49", name: "Virgo Elliptical", ra: 187.44, dec: 8.00, mag: 8.4, type: "Elliptical Galaxy" },
+  { id: "M50", name: "Heart-Shaped Cluster", ra: 105.70, dec: -8.33, mag: 5.9, type: "Open Cluster" },
+  { id: "M51", name: "Whirlpool Galaxy", ra: 202.47, dec: 47.20, mag: 8.4, type: "Spiral Galaxy" },
+  { id: "M52", name: "Scorpion Cluster", ra: 351.20, dec: 61.59, mag: 6.9, type: "Open Cluster" },
+  { id: "M53", name: "Coma Globular", ra: 198.23, dec: 18.17, mag: 7.6, type: "Globular Cluster" },
+  { id: "M54", name: "Sagittarius Globular", ra: 283.76, dec: -30.48, mag: 7.6, type: "Globular Cluster" },
+  { id: "M55", name: "Summer Globular", ra: 294.99, dec: -30.96, mag: 6.3, type: "Globular Cluster" },
+  { id: "M56", name: "Lyra Globular", ra: 289.15, dec: 30.18, mag: 8.3, type: "Globular Cluster" },
+  { id: "M57", name: "Ring Nebula", ra: 283.40, dec: 33.03, mag: 8.8, type: "Planetary Nebula" },
+  { id: "M58", name: "Virgo Cluster Galaxy", ra: 189.43, dec: 11.82, mag: 9.7, type: "Barred Spiral Galaxy" },
+  { id: "M59", name: "Virgo Cluster Galaxy", ra: 190.51, dec: 11.65, mag: 9.6, type: "Elliptical Galaxy" },
+  { id: "M60", name: "Virgo Cluster Galaxy", ra: 190.92, dec: 11.55, mag: 8.8, type: "Elliptical Galaxy" },
+  { id: "M61", name: "Swirling Galaxy", ra: 185.48, dec: 4.47, mag: 9.7, type: "Spiral Galaxy" },
+  { id: "M62", name: "Flickering Globular", ra: 254.27, dec: -30.11, mag: 6.5, type: "Globular Cluster" },
+  { id: "M63", name: "Sunflower Galaxy", ra: 198.96, dec: 42.03, mag: 8.6, type: "Spiral Galaxy" },
+  { id: "M64", name: "Black Eye Galaxy", ra: 194.18, dec: 21.68, mag: 8.5, type: "Spiral Galaxy" },
+  { id: "M65", name: "Leo Triplet Galaxy", ra: 169.73, dec: 13.10, mag: 9.3, type: "Barred Spiral Galaxy" },
+  { id: "M66", name: "Leo Triplet Galaxy", ra: 170.06, dec: 12.99, mag: 8.9, type: "Barred Spiral Galaxy" },
+  { id: "M67", name: "King Cobra Cluster", ra: 132.83, dec: 11.82, mag: 6.1, type: "Open Cluster" },
+  { id: "M68", name: "Hydra Globular", ra: 189.87, dec: -26.75, mag: 7.8, type: "Globular Cluster" },
+  { id: "M69", name: "Sagittarius Globular", ra: 277.85, dec: -32.35, mag: 7.6, type: "Globular Cluster" },
+  { id: "M70", name: "Sagittarius Globular", ra: 280.80, dec: -32.29, mag: 7.9, type: "Globular Cluster" },
+  { id: "M71", name: "Sagitta Globular", ra: 298.44, dec: 18.77, mag: 8.2, type: "Globular Cluster" },
+  { id: "M72", name: "Aquarius Globular", ra: 313.36, dec: -12.54, mag: 9.3, type: "Globular Cluster" },
+  { id: "M73", name: "Aquarius Four Stars", ra: 309.88, dec: -12.63, mag: 9.0, type: "Asterism" },
+  { id: "M74", name: "Phantom Galaxy", ra: 24.17, dec: 15.78, mag: 9.4, type: "Spiral Galaxy" },
+  { id: "M75", name: "Sagittarius Globular", ra: 301.52, dec: -21.92, mag: 8.6, type: "Globular Cluster" },
+  { id: "M76", name: "Little Dumbbell Nebula", ra: 25.58, dec: 51.57, mag: 10.1, type: "Planetary Nebula" },
+  { id: "M77", name: "Cetus Galaxy", ra: 42.67, dec: -0.01, mag: 8.9, type: "Spiral Galaxy" },
+  { id: "M78", name: "Orion Reflection Nebula", ra: 86.67, dec: 0.08, mag: 8.3, type: "Reflection Nebula" },
+  { id: "M79", name: "Lepus Globular", ra: 81.05, dec: -24.52, mag: 7.7, type: "Globular Cluster" },
+  { id: "M80", name: "Scorpius Globular", ra: 244.26, dec: -22.98, mag: 7.3, type: "Globular Cluster" },
+  { id: "M81", name: "Bode's Galaxy", ra: 148.88, dec: 69.07, mag: 6.9, type: "Spiral Galaxy" },
+  { id: "M82", name: "Cigar Galaxy", ra: 148.97, dec: 69.68, mag: 8.4, type: "Spiral Galaxy" },
+  { id: "M83", name: "Southern Pinwheel Galaxy", ra: 204.25, dec: -29.87, mag: 7.5, type: "Spiral Galaxy" },
+  { id: "M84", name: "Markarian's Chain Galaxy", ra: 186.27, dec: 12.88, mag: 9.1, type: "Lenticular Galaxy" },
+  { id: "M85", name: "Coma Berenices Galaxy", ra: 186.35, dec: 18.19, mag: 9.1, type: "Lenticular Galaxy" },
+  { id: "M86", name: "Markarian's Chain Galaxy", ra: 186.54, dec: 12.94, mag: 8.9, type: "Lenticular Galaxy" },
+  { id: "M87", name: "Virgo A Galaxy", ra: 187.71, dec: 12.39, mag: 8.6, type: "Elliptical Galaxy" },
+  { id: "M88", name: "Virgo Cluster Galaxy", ra: 187.99, dec: 14.42, mag: 9.6, type: "Spiral Galaxy" },
+  { id: "M89", name: "Virgo Cluster Galaxy", ra: 188.92, dec: 12.56, mag: 9.8, type: "Elliptical Galaxy" },
+  { id: "M90", name: "Virgo Cluster Galaxy", ra: 189.21, dec: 13.16, mag: 9.5, type: "Spiral Galaxy" },
+  { id: "M91", name: "Virgo Cluster Galaxy", ra: 188.86, dec: 14.50, mag: 10.2, type: "Barred Spiral Galaxy" },
+  { id: "M92", name: "Hercules Globular", ra: 258.28, dec: 43.14, mag: 6.3, type: "Globular Cluster" },
+  { id: "M93", name: "Critter Cluster", ra: 116.15, dec: -23.86, mag: 6.0, type: "Open Cluster" },
+  { id: "M94", name: "Croc's Eye Galaxy", ra: 192.72, dec: 41.12, mag: 8.2, type: "Spiral Galaxy" },
+  { id: "M95", name: "Leo Galaxy", ra: 160.99, dec: 11.70, mag: 9.7, type: "Barred Spiral Galaxy" },
+  { id: "M96", name: "Leo Galaxy", ra: 161.69, dec: 11.82, mag: 9.2, type: "Spiral Galaxy" },
+  { id: "M97", name: "Owl Nebula", ra: 168.70, dec: 55.02, mag: 9.9, type: "Planetary Nebula" },
+  { id: "M98", name: "Virgo Cluster Galaxy", ra: 183.45, dec: 14.90, mag: 10.1, type: "Spiral Galaxy" },
+  { id: "M99", name: "Coma Pinwheel Galaxy", ra: 184.71, dec: 14.42, mag: 9.9, type: "Spiral Galaxy" },
+  { id: "M100", name: "Virgo Cluster Pinwheel", ra: 185.73, dec: 15.82, mag: 9.3, type: "Spiral Galaxy" },
+  { id: "M101", name: "Pinwheel Galaxy", ra: 210.80, dec: 54.35, mag: 7.9, type: "Spiral Galaxy" },
+  { id: "M102", name: "Spindle Galaxy", ra: 226.63, dec: 55.76, mag: 9.9, type: "Lenticular Galaxy" },
+  { id: "M103", name: "Cassiopeia Cluster", ra: 23.31, dec: 60.70, mag: 7.4, type: "Open Cluster" },
+  { id: "M104", name: "Sombrero Galaxy", ra: 190.00, dec: -11.62, mag: 8.0, type: "Spiral Galaxy" },
+  { id: "M105", name: "Leo Elliptical Galaxy", ra: 161.96, dec: 12.60, mag: 9.3, type: "Elliptical Galaxy" },
+  { id: "M106", name: "Canes Venatici Galaxy", ra: 184.74, dec: 47.30, mag: 8.4, type: "Spiral Galaxy" },
+  { id: "M107", name: "Ophiuchus Globular", ra: 248.13, dec: -13.05, mag: 7.9, type: "Globular Cluster" },
+  { id: "M108", name: "Surfboard Galaxy", ra: 167.88, dec: 55.67, mag: 10.0, type: "Spiral Galaxy" },
+  { id: "M109", name: "Vacuum Cleaner Galaxy", ra: 179.40, dec: 53.37, mag: 9.8, type: "Barred Spiral Galaxy" },
+  { id: "M110", name: "Satellite of Andromeda", ra: 10.10, dec: 41.69, mag: 8.5, type: "Dwarf Elliptical Galaxy" }
+];
+
+// App State
+const state = {
+  lat: 28.5383, lon: -81.3792, // Orlando, FL
+  time: new Date(),
+  zoom: 1.0,
+  panX: 0, panY: 0,
+  magLimit: 5.0,
+  timeSpeed: 1,
+  showConstellations: true,
+  showMessier: true,
+  showPlanets: true,
+  showEcliptic: true,
+  gridMode: 0 // 0: Off, 1: Alt/Az, 2: Equatorial
+};
+
+// Canvas & Container Observer Setup
+const container = document.getElementById("canvas-container");
+const canvas = document.getElementById("skymap");
+const ctx = canvas.getContext("2d");
+let width, height, centerR;
+
+function resize() {
+  width = canvas.width = container.clientWidth || window.innerWidth;
+  height = canvas.height = container.clientHeight || window.innerHeight;
+  centerR = Math.min(width, height) * 0.42;
+}
+
+window.addEventListener("resize", resize);
+if (window.ResizeObserver) {
+  new ResizeObserver(resize).observe(container);
+}
+resize();
+
+// Astronomical Coordinates Engine
+function getLST(date, lon) {
+  const jd = (date.getTime() / 86400000) + 2440587.5;
+  const d = jd - 2451545.0;
+  let gmst = 280.46061837 + 360.98564736629 * d;
+  gmst = (gmst % 360 + 360) % 360;
+  return (gmst + lon + 360) % 360;
+}
+
+function radecToAltAz(ra, dec, lat, lst) {
+  const ha = ((lst - ra) + 360) % 360;
+  const rad = Math.PI / 180;
+  
+  const phi = lat * rad;
+  const d = dec * rad;
+  const h = ha * rad;
+  
+  const sinAlt = Math.sin(phi) * Math.sin(d) + Math.cos(phi) * Math.cos(d) * Math.cos(h);
+  const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
+  
+  const cosAz = (Math.sin(d) - Math.sin(phi) * Math.sin(alt)) / (Math.cos(phi) * Math.cos(alt));
+  let az = Math.acos(Math.max(-1, Math.min(1, cosAz)));
+  if (Math.sin(h) > 0) az = 2 * Math.PI - az;
+  
+  return { alt: alt / rad, az: az / rad };
+}
+
+// Projection: Southward Looking (South = Bottom, Center = Zenith)
+function altAzToScreen(alt, az) {
+  if (alt < 0) return null; // Below horizon
+  const r = centerR * state.zoom * Math.tan((90 - alt) * Math.PI / 360);
+  const azRad = az * Math.PI / 180;
+  const x = width / 2 + state.panX - r * Math.sin(azRad);
+  const y = height / 2 + state.panY - r * Math.cos(azRad);
+  return { x, y };
+}
+
+// Solar System Calculation
+function getSolarSystem(date) {
+  const jd = (date.getTime() / 86400000) + 2440587.5;
+  const d = jd - 2451545.0;
+  const rad = Math.PI / 180, deg = 180 / Math.PI;
+
+  const eps = (23.4393 - 0.0000004 * d) * rad;
+
+  // Sun
+  const g = ((357.529 + 0.98560028 * d) % 360 + 360) % 360;
+  const q = ((280.459 + 0.98564736 * d) % 360 + 360) % 360;
+  const Lsun = (q + 1.915 * Math.sin(g * rad) + 0.020 * Math.sin(2 * g * rad)) % 360;
+  const sunRa = (Math.atan2(Math.cos(eps) * Math.sin(Lsun * rad), Math.cos(Lsun * rad)) * deg + 360) % 360;
+  const sunDec = Math.asin(Math.sin(eps) * Math.sin(Lsun * rad)) * deg;
+
+  // Moon
+  const Lmoon = (218.316 + 13.176396 * d) % 360;
+  const Mmoon = (134.963 + 13.064993 * d) % 360;
+  const Fmoon = (93.272 + 13.229350 * d) % 360;
+  const lMoon = (Lmoon + 6.289 * Math.sin(Mmoon * rad)) % 360;
+  const bMoon = 5.128 * Math.sin(Fmoon * rad);
+
+  const lRad = lMoon * rad, bRad = bMoon * rad;
+  const moonRa = (Math.atan2(Math.sin(lRad) * Math.cos(eps) - Math.tan(bRad) * Math.sin(eps), Math.cos(lRad)) * deg + 360) % 360;
+  const moonDec = Math.asin(Math.sin(bRad) * Math.cos(eps) + Math.cos(bRad) * Math.sin(eps) * Math.sin(lRad)) * deg;
+
+  const bodies = [
+    { name: "Sun", ra: sunRa, dec: sunDec, mag: -26.7, color: "#fde047", radius: 7, type: "Star" },
+    { name: "Moon", ra: moonRa, dec: moonDec, mag: -12.5, color: "#f1f5f9", radius: 6, type: "Natural Satellite" }
+  ];
+
+  const pData = [
+    { name: "Mercury", a: 0.387, e: 0.2056, I: 7.00, L: 252.25, w: 77.46, N: 48.33, rate: 4.0923, mag: -0.4, color: "#cbd5e1", radius: 3 },
+    { name: "Venus", a: 0.723, e: 0.0067, I: 3.39, L: 181.98, w: 131.77, N: 76.68, rate: 1.6021, mag: -4.2, color: "#fef08a", radius: 5 },
+    { name: "Mars", a: 1.524, e: 0.0934, I: 1.85, L: 355.43, w: 336.06, N: 49.56, rate: 0.5240, mag: -1.5, color: "#f87171", radius: 4 },
+    { name: "Jupiter", a: 5.204, e: 0.0485, I: 1.30, L: 34.35, w: 14.33, N: 100.46, rate: 0.0831, mag: -2.4, color: "#fde68a", radius: 6 },
+    { name: "Saturn", a: 9.582, e: 0.0555, I: 2.49, L: 50.08, w: 93.06, N: 113.67, rate: 0.0335, mag: 0.2, color: "#fef08a", radius: 5 }
+  ];
+
+  pData.forEach(p => {
+    const M = ((p.L + p.rate * d - p.w) % 360 + 360) % 360 * rad;
+    const E = M + p.e * Math.sin(M);
+    const x_orb = p.a * (Math.cos(E) - p.e);
+    const y_orb = p.a * Math.sqrt(1 - p.e * p.e) * Math.sin(E);
+
+    const v = Math.atan2(y_orb, x_orb);
+    const r = Math.sqrt(x_orb * x_orb + y_orb * y_orb);
+    const u = v + (p.w - p.N) * rad;
+    const N_rad = p.N * rad, I_rad = p.I * rad;
+
+    const x_hel = r * (Math.cos(N_rad) * Math.cos(u) - Math.sin(N_rad) * Math.sin(u) * Math.cos(I_rad));
+    const y_hel = r * (Math.sin(N_rad) * Math.cos(u) + Math.cos(N_rad) * Math.sin(u) * Math.cos(I_rad));
+    const z_hel = r * (Math.sin(u) * Math.sin(I_rad));
+
+    const sunLonRad = Lsun * rad;
+    const x_geo = x_hel + Math.cos(sunLonRad);
+    const y_geo = y_hel + Math.sin(sunLonRad);
+    const z_geo = z_hel;
+
+    const ra_p = (Math.atan2(y_geo, x_geo) * deg + 360) % 360;
+    const dec_p = Math.atan2(z_geo, Math.sqrt(x_geo * x_geo + y_geo * y_geo)) * deg;
+
+    bodies.push({ name: p.name, ra: ra_p, dec: dec_p, mag: p.mag, color: p.color, radius: p.radius, type: "Planet" });
+  });
+
+  return bodies;
+}
+
+// Render Engine
+let screenObjects = [];
+
+function render() {
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, width, height);
+
+  const lst = getLST(state.time, state.lon);
+  const cx = width / 2 + state.panX;
+  const cy = height / 2 + state.panY;
+  const R = centerR * state.zoom;
+  screenObjects = [];
+
+  // Horizon Boundary Circle
+  ctx.strokeStyle = "#1e293b";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Grid Overlays
+  if (state.gridMode === 1) { // Alt/Az Grid
+    ctx.strokeStyle = "rgba(51, 65, 85, 0.4)";
+    ctx.lineWidth = 1;
+    [15, 30, 45, 60, 75].forEach(alt => {
+      const r = centerR * state.zoom * Math.tan((90 - alt) * Math.PI / 360);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+    for (let az = 0; az < 360; az += 30) {
+      const azRad = az * Math.PI / 180;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx - R * Math.sin(azRad), cy - R * Math.cos(azRad));
+      ctx.stroke();
+    }
+  } else if (state.gridMode === 2) { // Equatorial Grid
+    ctx.strokeStyle = "rgba(14, 116, 144, 0.35)";
+    ctx.lineWidth = 1;
+    for (let dec = -60; dec <= 60; dec += 30) {
+      ctx.beginPath();
+      let first = true;
+      for (let ra = 0; ra <= 360; ra += 10) {
+        const hor = radecToAltAz(ra, dec, state.lat, lst);
+        const pos = altAzToScreen(hor.alt, hor.az);
+        if (pos) {
+          if (first) { ctx.moveTo(pos.x, pos.y); first = false; }
+          else ctx.lineTo(pos.x, pos.y);
+        } else first = true;
+      }
+      ctx.stroke();
+    }
+  }
+
+  // Draw Ecliptic Line
+  if (state.showEcliptic) {
+    ctx.strokeStyle = "rgba(234, 179, 8, 0.5)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    let first = true;
+    const eps = 23.439 * Math.PI / 180;
+    for (let l = 0; l <= 360; l += 4) {
+      const lRad = l * Math.PI / 180;
+      const ra = (Math.atan2(Math.cos(eps) * Math.sin(lRad), Math.cos(lRad)) * 180 / Math.PI + 360) % 360;
+      const dec = Math.asin(Math.sin(eps) * Math.sin(lRad)) * 180 / Math.PI;
+      const hor = radecToAltAz(ra, dec, state.lat, lst);
+      const pos = altAzToScreen(hor.alt, hor.az);
+      if (pos) {
+        if (first) { ctx.moveTo(pos.x, pos.y); first = false; }
+        else ctx.lineTo(pos.x, pos.y);
+      } else first = true;
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Draw Constellation Figures & Highlight Node Stars
+  if (state.showConstellations) {
+    ctx.strokeStyle = "rgba(56, 189, 248, 0.45)";
+    ctx.lineWidth = 1.3;
+    CONSTELLATIONS.forEach(c => {
+      c.lines.forEach(pair => {
+        const s1 = STARS.find(s => s.name === pair[0]);
+        const s2 = STARS.find(s => s.name === pair[1]);
+        if (s1 && s2) {
+          const h1 = radecToAltAz(s1.ra, s1.dec, state.lat, lst);
+          const h2 = radecToAltAz(s2.ra, s2.dec, state.lat, lst);
+          const p1 = altAzToScreen(h1.alt, h1.az);
+          const p2 = altAzToScreen(h2.alt, h2.az);
+          if (p1 && p2) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+
+            // Render node star points at vertices
+            [p1, p2].forEach(p => {
+              ctx.fillStyle = "#38bdf8";
+              ctx.beginPath();
+              ctx.arc(p.x, p.y, Math.max(2.2, 3.0 * state.zoom), 0, Math.PI * 2);
+              ctx.fill();
+            });
+          }
+        }
+      });
+    });
+  }
+
+  // Draw All Real Stars
+  STARS.forEach(s => {
+    if (s.mag > state.magLimit) return;
+    const hor = radecToAltAz(s.ra, s.dec, state.lat, lst);
+    const pos = altAzToScreen(hor.alt, hor.az);
+    if (!pos) return;
+
+    let baseR;
+    if (s.mag < 0) baseR = 5.5;
+    else if (s.mag < 1.0) baseR = 4.5;
+    else if (s.mag < 2.0) baseR = 3.6;
+    else if (s.mag < 3.0) baseR = 2.8;
+    else if (s.mag < 4.0) baseR = 2.2;
+    else baseR = 1.6;
+
+    const r = baseR * Math.sqrt(state.zoom);
+    ctx.fillStyle = s.bv > 1.2 ? "#fca5a5" : s.bv > 0.5 ? "#fef08a" : s.bv < 0.1 ? "#93c5fd" : "#ffffff";
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    screenObjects.push({ ...s, x: pos.x, y: pos.y, alt: hor.alt, az: hor.az, category: "Star" });
+
+    if (s.mag < 2.2) {
+      ctx.fillStyle = "rgba(226, 232, 240, 0.75)";
+      ctx.font = "10px sans-serif";
+      ctx.fillText(s.name, pos.x + r + 3, pos.y + 3);
+    }
+  });
+
+  // Draw ALL Messier Objects (M1 to M110)
+  if (state.showMessier) {
+    MESSIER.forEach(m => {
+      const hor = radecToAltAz(m.ra, m.dec, state.lat, lst);
+      const pos = altAzToScreen(hor.alt, hor.az);
+      if (!pos) return;
+
+      ctx.strokeStyle = "#f43f5e";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.ellipse(pos.x, pos.y, 5 * state.zoom, 3.5 * state.zoom, Math.PI / 4, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = "#fda4af";
+      ctx.font = "10px monospace";
+      ctx.fillText(m.id, pos.x + 7, pos.y + 3);
+
+      screenObjects.push({ name: `${m.id} (${m.name})`, ra: m.ra, dec: m.dec, mag: m.mag, type: m.type, x: pos.x, y: pos.y, alt: hor.alt, az: hor.az, category: "Messier Object" });
+    });
+  }
+
+  // Draw Planets & Moon & Sun
+  if (state.showPlanets) {
+    const planets = getSolarSystem(state.time);
+    planets.forEach(p => {
+      const hor = radecToAltAz(p.ra, p.dec, state.lat, lst);
+      const pos = altAzToScreen(hor.alt, hor.az);
+      if (!pos) return;
+
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y, p.radius * Math.min(state.zoom, 2), 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#f8fafc";
+      ctx.font = "bold 10px sans-serif";
+      ctx.fillText(p.name, pos.x + p.radius + 4, pos.y + 3);
+
+      screenObjects.push({ name: p.name, ra: p.ra, dec: p.dec, mag: p.mag, type: p.type, x: pos.x, y: pos.y, alt: hor.alt, az: hor.az, category: "Solar System" });
+    });
+  }
+
+  // Draw Southward Cardinal Compass Points
+  const compass = [
+    { label: "S", az: 180 }, { label: "SW", az: 225 },
+    { label: "W", az: 270 }, { label: "NW", az: 315 },
+    { label: "N", az: 0 },   { label: "NE", az: 45 },
+    { label: "E", az: 90 },  { label: "SE", az: 135 }
+  ];
+  ctx.font = "bold 12px monospace";
+  compass.forEach(c => {
+    const azRad = c.az * Math.PI / 180;
+    const x = cx - (R + 14) * Math.sin(azRad);
+    const y = cy - (R + 14) * Math.cos(azRad);
+    ctx.fillStyle = c.label === "S" ? "#f43f5e" : "#38bdf8";
+    ctx.fillText(c.label, x - 6, y + 4);
+  });
+
+  // Time Advancement
+  if (state.timeSpeed > 1) {
+    state.time = new Date(state.time.getTime() + state.timeSpeed * 16);
+    updateDateInput();
+  }
+
+  requestAnimationFrame(render);
+}
+
+// Date/Time Controls
+const datetimeInput = document.getElementById("datetime-input");
+function updateDateInput() {
+  const t = state.time;
+  const iso = new Date(t.getTime() - (t.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+  datetimeInput.value = iso;
+}
+updateDateInput();
+
+datetimeInput.addEventListener("change", e => {
+  if (e.target.value) state.time = new Date(e.target.value);
+});
+document.getElementById("btn-now").addEventListener("click", () => { state.time = new Date(); updateDateInput(); });
+document.getElementById("btn-sub-hour").addEventListener("click", () => { state.time = new Date(state.time.getTime() - 3600000); updateDateInput(); });
+document.getElementById("btn-add-hour").addEventListener("click", () => { state.time = new Date(state.time.getTime() + 3600000); updateDateInput(); });
+document.getElementById("btn-sub-day").addEventListener("click", () => { state.time = new Date(state.time.getTime() - 86400000); updateDateInput(); });
+document.getElementById("btn-add-day").addEventListener("click", () => { state.time = new Date(state.time.getTime() + 86400000); updateDateInput(); });
+
+// Touch & Mouse Handlers
+let dragging = false, lastX = 0, lastY = 0;
+canvas.addEventListener("pointerdown", e => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
+canvas.addEventListener("pointermove", e => {
+  if (dragging) {
+    state.panX += e.clientX - lastX;
+    state.panY += e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+  }
+  
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const target = screenObjects.find(o => Math.hypot(o.x - mx, o.y - my) < 15);
+  const inspector = document.getElementById("inspector");
+
+  if (target) {
+    document.getElementById("obj-name").textContent = target.name;
+    document.getElementById("obj-type").textContent = target.type || target.category;
+    document.getElementById("obj-mag").textContent = target.mag;
+    document.getElementById("obj-radec").textContent = `${(target.ra/15).toFixed(1)}h / ${target.dec > 0 ? '+' : ''}${target.dec.toFixed(1)}°`;
+    document.getElementById("obj-altaz").textContent = `${target.alt.toFixed(1)}° / ${target.az.toFixed(1)}°`;
+    inspector.style.display = "block";
+  }
+});
+
+window.addEventListener("pointerup", () => dragging = false);
+canvas.addEventListener("wheel", e => {
+  state.zoom = Math.max(0.5, Math.min(5.0, state.zoom * (e.deltaY < 0 ? 1.15 : 0.85)));
+});
+
+// UI Event Listeners
+document.getElementById("mag-limit").addEventListener("input", e => {
+  state.magLimit = parseFloat(e.target.value);
+  document.getElementById("mag-val").textContent = state.magLimit.toFixed(1);
+});
+document.getElementById("time-speed").addEventListener("change", e => state.timeSpeed = parseInt(e.target.value));
+
+document.getElementById("toggle-constellations").addEventListener("click", function() {
+  state.showConstellations = !state.showConstellations;
+  this.classList.toggle("active", state.showConstellations);
+});
+document.getElementById("toggle-messier").addEventListener("click", function() {
+  state.showMessier = !state.showMessier;
+  this.classList.toggle("active", state.showMessier);
+});
+document.getElementById("toggle-planets").addEventListener("click", function() {
+  state.showPlanets = !state.showPlanets;
+  this.classList.toggle("active", state.showPlanets);
+});
+document.getElementById("toggle-ecliptic").addEventListener("click", function() {
+  state.showEcliptic = !state.showEcliptic;
+  this.classList.toggle("active", state.showEcliptic);
+});
+
+const gridBtn = document.getElementById("toggle-grid");
+gridBtn.addEventListener("click", function() {
+  state.gridMode = (state.gridMode + 1) % 3;
+  const modes = ["Grid: Off", "Grid: Alt/Az", "Grid: Equatorial"];
+  this.textContent = modes[state.gridMode];
+  this.classList.toggle("active", state.gridMode !== 0);
+});
+
+document.getElementById("toggle-night").addEventListener("click", function() {
+  document.body.classList.toggle("night-mode");
+  this.classList.toggle("active");
+});
+
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
