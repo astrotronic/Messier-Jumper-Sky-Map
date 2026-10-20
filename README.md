@@ -1,0 +1,1 @@
+This is a sky map generator for quickly seeing which Messier objects are overhead for a given time.  Views are as can be seen from Orlando Florida.  Other places in Florida will present a very similar perspective.
