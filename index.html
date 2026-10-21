@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Messier Jumper Sky Map Viewer</title>
+  <title>Messier Jumper Sky Map Viewer - Mobile & PC Responsive</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
     html, body {
@@ -39,6 +39,7 @@
       padding: 10px 14px;
       z-index: 10;
       box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+      pointer-events: auto;
     }
     #header-panel {
       top: 14px; left: 14px;
@@ -69,11 +70,11 @@
     #controls-panel {
       bottom: 14px; right: 14px; display: flex; flex-direction: column; gap: 8px; width: 250px;
     }
-    label { font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; justify-content: space-between; }
+    label { font-size: 0.75rem; color: #94a3b8; display: flex; align-items: center; justify-space-between; }
     input[type="range"] { accent-color: #38bdf8; cursor: pointer; width: 100px; }
     
     #inspector {
-      bottom: 14px; left: 14px; width: 290px; display: none;
+      bottom: 14px; left: 14px; width: 290px; display: none; pointer-events: none;
     }
     #inspector h2 { font-size: 0.95rem; color: #f43f5e; margin-bottom: 6px; }
     .info-row { display: flex; justify-content: space-between; font-size: 0.75rem; margin: 3px 0; color: #94a3b8; }
@@ -99,7 +100,7 @@
 
 <!-- Header Navigation Bar -->
 <div id="header-panel" class="ui-panel">
-  <h1>Messier Jumper Sky Map</h1>
+  <h1>Messier Jumper 2.0</h1>
   <button class="btn active" id="toggle-constellations">IAU Constellations</button>
   <button class="btn active" id="toggle-messier">Messier (M1-M110)</button>
   <button class="btn active" id="toggle-planets">Planets/Moon</button>
@@ -128,6 +129,12 @@
 <div id="controls-panel" class="ui-panel">
   <label>Mag Limit: <span id="mag-val" style="color:#38bdf8; font-weight:bold;">5.0</span>
     <input type="range" id="mag-limit" min="1.0" max="6.0" step="0.1" value="5.0">
+  </label>
+  <label>Zoom Level: <span id="zoom-val" style="color:#38bdf8; font-weight:bold;">1.0x</span>
+    <div style="display:flex; gap:4px;">
+      <button class="btn" id="btn-zoom-out" style="padding:2px 8px;">-</button>
+      <button class="btn" id="btn-zoom-in" style="padding:2px 8px;">+</button>
+    </div>
   </label>
   <label>Time Speed
     <select id="time-speed" class="btn" style="padding:2px 6px;">
@@ -610,7 +617,8 @@ const state = {
   showMessier: true,
   showPlanets: true,
   showEcliptic: true,
-  gridMode: 0 // 0: Off, 1: Alt/Az, 2: Equatorial
+  gridMode: 0, // 0: Off, 1: Alt/Az, 2: Equatorial
+  hoveredObject: null
 };
 
 // Canvas & Container Observer Setup
@@ -618,6 +626,11 @@ const container = document.getElementById("canvas-container");
 const canvas = document.getElementById("skymap");
 const ctx = canvas.getContext("2d");
 let width, height, centerR;
+
+function setZoom(newZoom) {
+  state.zoom = Math.max(0.5, Math.min(15.0, newZoom));
+  document.getElementById("zoom-val").textContent = `${state.zoom.toFixed(1)}x`;
+}
 
 function resize() {
   width = canvas.width = container.clientWidth || window.innerWidth;
@@ -814,11 +827,12 @@ function render() {
     ctx.setLineDash([]);
   }
 
-  // Draw Constellation Figures & Highlight Node Stars
+  // Draw Constellation Figures, Node Stars & Name Labels
   if (state.showConstellations) {
     ctx.strokeStyle = "rgba(56, 189, 248, 0.45)";
     ctx.lineWidth = 1.3;
     CONSTELLATIONS.forEach(c => {
+      const pts = [];
       c.lines.forEach(pair => {
         const s1 = STARS.find(s => s.name === pair[0]);
         const s2 = STARS.find(s => s.name === pair[1]);
@@ -833,16 +847,36 @@ function render() {
             ctx.lineTo(p2.x, p2.y);
             ctx.stroke();
 
+            pts.push(p1, p2);
+
             // Render node star points at vertices
             [p1, p2].forEach(p => {
               ctx.fillStyle = "#38bdf8";
               ctx.beginPath();
-              ctx.arc(p.x, p.y, Math.max(2.2, 3.0 * state.zoom), 0, Math.PI * 2);
+              ctx.arc(p.x, p.y, Math.max(2.0, 2.6 * Math.sqrt(state.zoom)), 0, Math.PI * 2);
               ctx.fill();
             });
           }
         }
       });
+
+      // Render Constellation Name Label at Figure Centroid
+      if (pts.length > 0) {
+        const avgX = pts.reduce((sum, p) => sum + p.x, 0) / pts.length;
+        const avgY = pts.reduce((sum, p) => sum + p.y, 0) / pts.length;
+        
+        ctx.fillStyle = "rgba(125, 211, 252, 0.88)";
+        const fontSize = Math.min(18, Math.max(10, Math.round(11 * Math.pow(state.zoom, 0.35))));
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
+        ctx.shadowBlur = 5;
+        ctx.fillText(c.name.toUpperCase(), avgX, avgY);
+        ctx.shadowBlur = 0;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+      }
     });
   }
 
@@ -871,7 +905,7 @@ function render() {
 
     if (s.mag < 2.2) {
       ctx.fillStyle = "rgba(226, 232, 240, 0.75)";
-      ctx.font = "10px sans-serif";
+      ctx.font = `${Math.min(14, Math.max(10, 10 * Math.pow(state.zoom, 0.25)))}px sans-serif`;
       ctx.fillText(s.name, pos.x + r + 3, pos.y + 3);
     }
   });
@@ -883,10 +917,11 @@ function render() {
       const pos = altAzToScreen(hor.alt, hor.az);
       if (!pos) return;
 
+      const scale = Math.min(2.5, Math.sqrt(state.zoom));
       ctx.strokeStyle = "#f43f5e";
       ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.ellipse(pos.x, pos.y, 5 * state.zoom, 3.5 * state.zoom, Math.PI / 4, 0, Math.PI * 2);
+      ctx.ellipse(pos.x, pos.y, 5 * scale, 3.5 * scale, Math.PI / 4, 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.fillStyle = "#fda4af";
@@ -905,14 +940,15 @@ function render() {
       const pos = altAzToScreen(hor.alt, hor.az);
       if (!pos) return;
 
+      const rad = p.radius * Math.min(Math.sqrt(state.zoom), 2.2);
       ctx.fillStyle = p.color;
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, p.radius * Math.min(state.zoom, 2), 0, Math.PI * 2);
+      ctx.arc(pos.x, pos.y, rad, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = "#f8fafc";
       ctx.font = "bold 10px sans-serif";
-      ctx.fillText(p.name, pos.x + p.radius + 4, pos.y + 3);
+      ctx.fillText(p.name, pos.x + rad + 4, pos.y + 3);
 
       screenObjects.push({ name: p.name, ra: p.ra, dec: p.dec, mag: p.mag, type: p.type, x: pos.x, y: pos.y, alt: hor.alt, az: hor.az, category: "Solar System" });
     });
@@ -933,6 +969,28 @@ function render() {
     ctx.fillStyle = c.label === "S" ? "#f43f5e" : "#38bdf8";
     ctx.fillText(c.label, x - 6, y + 4);
   });
+
+  // Draw Visual Hover Targeting Reticle over Selected Object
+  if (state.hoveredObject) {
+    const activeTarget = screenObjects.find(o => o.name === state.hoveredObject.name);
+    if (activeTarget) {
+      ctx.save();
+      ctx.strokeStyle = "#f43f5e";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(activeTarget.x, activeTarget.y, 14, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Crosshairs
+      ctx.beginPath();
+      ctx.moveTo(activeTarget.x - 18, activeTarget.y); ctx.lineTo(activeTarget.x - 9, activeTarget.y);
+      ctx.moveTo(activeTarget.x + 9, activeTarget.y); ctx.lineTo(activeTarget.x + 18, activeTarget.y);
+      ctx.moveTo(activeTarget.x, activeTarget.y - 18); ctx.lineTo(activeTarget.x, activeTarget.y - 9);
+      ctx.moveTo(activeTarget.x, activeTarget.y + 9); ctx.lineTo(activeTarget.x, activeTarget.y + 18);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 
   // Time Advancement
   if (state.timeSpeed > 1) {
@@ -961,37 +1019,110 @@ document.getElementById("btn-add-hour").addEventListener("click", () => { state.
 document.getElementById("btn-sub-day").addEventListener("click", () => { state.time = new Date(state.time.getTime() - 86400000); updateDateInput(); });
 document.getElementById("btn-add-day").addEventListener("click", () => { state.time = new Date(state.time.getTime() + 86400000); updateDateInput(); });
 
-// Touch & Mouse Handlers
+// Multi-Touch Pinch Zoom & Mouse Drag Gesture Engine
+const activePointers = new Map();
+let prevDiff = -1;
 let dragging = false, lastX = 0, lastY = 0;
-canvas.addEventListener("pointerdown", e => { dragging = true; lastX = e.clientX; lastY = e.clientY; });
-canvas.addEventListener("pointermove", e => {
-  if (dragging) {
-    state.panX += e.clientX - lastX;
-    state.panY += e.clientY - lastY;
-    lastX = e.clientX; lastY = e.clientY;
-  }
-  
+
+function checkObjectHover(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-  const target = screenObjects.find(o => Math.hypot(o.x - mx, o.y - my) < 15);
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const mx = (clientX - rect.left) * scaleX;
+  const my = (clientY - rect.top) * scaleY;
+
+  // 22px detection radius for accurate hovering on touchscreen & PC
+  const target = screenObjects.find(o => Math.hypot(o.x - mx, o.y - my) < 22);
   const inspector = document.getElementById("inspector");
 
   if (target) {
+    state.hoveredObject = target;
     document.getElementById("obj-name").textContent = target.name;
     document.getElementById("obj-type").textContent = target.type || target.category;
-    document.getElementById("obj-mag").textContent = target.mag;
-    document.getElementById("obj-radec").textContent = `${(target.ra/15).toFixed(1)}h / ${target.dec > 0 ? '+' : ''}${target.dec.toFixed(1)}°`;
+    document.getElementById("obj-mag").textContent = typeof target.mag === 'number' ? target.mag.toFixed(2) : target.mag;
+    
+    // Convert Right Ascension to Hours and Minutes
+    const raHours = Math.floor(target.ra / 15);
+    const raMins = Math.floor(((target.ra / 15) - raHours) * 60);
+    const raStr = `${String(raHours).padStart(2, '0')}h ${String(raMins).padStart(2, '0')}m`;
+    const decSign = target.dec >= 0 ? '+' : '';
+    const decStr = `${decSign}${target.dec.toFixed(1)}°`;
+
+    document.getElementById("obj-radec").textContent = `${raStr} / ${decStr}`;
     document.getElementById("obj-altaz").textContent = `${target.alt.toFixed(1)}° / ${target.az.toFixed(1)}°`;
     inspector.style.display = "block";
+  } else {
+    state.hoveredObject = null;
+    inspector.style.display = "none";
+  }
+}
+
+canvas.addEventListener("pointerdown", e => {
+  canvas.setPointerCapture(e.pointerId);
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (activePointers.size === 1) {
+    lastX = e.clientX;
+    lastY = e.clientY;
+    dragging = true;
+    checkObjectHover(e.clientX, e.clientY);
   }
 });
 
-window.addEventListener("pointerup", () => dragging = false);
-canvas.addEventListener("wheel", e => {
-  state.zoom = Math.max(0.5, Math.min(5.0, state.zoom * (e.deltaY < 0 ? 1.15 : 0.85)));
+canvas.addEventListener("pointermove", e => {
+  if (!activePointers.has(e.pointerId) && activePointers.size > 0) return;
+  
+  if (activePointers.has(e.pointerId)) {
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  }
+
+  if (activePointers.size === 2) {
+    // Multi-touch pinch zoom
+    dragging = false;
+    const pts = Array.from(activePointers.values());
+    const curDiff = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+
+    if (prevDiff > 0) {
+      const zoomFactor = curDiff / prevDiff;
+      setZoom(state.zoom * zoomFactor);
+    }
+    prevDiff = curDiff;
+  } else if (dragging) {
+    // Single finger or cursor drag
+    state.panX += e.clientX - lastX;
+    state.panY += e.clientY - lastY;
+    lastX = e.clientX;
+    lastY = e.clientY;
+  }
+
+  // Hover detection
+  checkObjectHover(e.clientX, e.clientY);
 });
 
-// UI Event Listeners
+function handlePointerEnd(e) {
+  activePointers.delete(e.pointerId);
+  if (activePointers.size < 2) prevDiff = -1;
+  if (activePointers.size === 0) {
+    dragging = false;
+  } else if (activePointers.size === 1) {
+    const remaining = Array.from(activePointers.values())[0];
+    lastX = remaining.x;
+    lastY = remaining.y;
+    dragging = true;
+  }
+}
+
+canvas.addEventListener("pointerup", handlePointerEnd);
+canvas.addEventListener("pointercancel", handlePointerEnd);
+
+canvas.addEventListener("wheel", e => {
+  e.preventDefault();
+  setZoom(state.zoom * (e.deltaY < 0 ? 1.15 : 0.85));
+}, { passive: false });
+
+// UI Control Listeners
+document.getElementById("btn-zoom-in").addEventListener("click", () => setZoom(state.zoom * 1.3));
+document.getElementById("btn-zoom-out").addEventListener("click", () => setZoom(state.zoom / 1.3));
+
 document.getElementById("mag-limit").addEventListener("input", e => {
   state.magLimit = parseFloat(e.target.value);
   document.getElementById("mag-val").textContent = state.magLimit.toFixed(1);
